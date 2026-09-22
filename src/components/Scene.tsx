@@ -16,22 +16,26 @@ export function Sword({ pullProgress, shaking }: SwordProps) {
     if (!groupRef.current) return;
     timeRef.current += delta;
     
-    // Pull animation - sword moves up
+    // Pull animation - sword moves up (blade comes out of stone)
     const pullY = pullProgress * 2.8;
     groupRef.current.position.y = -0.8 + pullY;
+    
+    // Base rotation is Math.PI on X (blade points down into stone)
+    const baseRotX = Math.PI;
     
     // Shake when pulling
     if (shaking && pullProgress < 0.95) {
       const intensity = 0.04 * (1 - pullProgress * 0.5);
       groupRef.current.rotation.z = Math.sin(timeRef.current * 35) * intensity;
-      groupRef.current.rotation.x = Math.cos(timeRef.current * 28) * intensity * 0.5;
+      groupRef.current.rotation.x = baseRotX + Math.cos(timeRef.current * 28) * intensity * 0.5;
     } else if (pullProgress < 0.01) {
       // Subtle idle breathing animation
       groupRef.current.rotation.z = Math.sin(timeRef.current * 0.8) * 0.005;
+      groupRef.current.rotation.x = baseRotX;
       groupRef.current.position.y = -0.8 + Math.sin(timeRef.current * 1.2) * 0.01;
     } else {
       groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, 0, 0.08);
-      groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, 0, 0.08);
+      groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, baseRotX, 0.08);
     }
 
     // Glow intensity based on pull progress
@@ -43,7 +47,7 @@ export function Sword({ pullProgress, shaking }: SwordProps) {
   });
 
   return (
-    <group ref={groupRef} position={[0, -0.8, 0]}>
+    <group ref={groupRef} position={[0, -0.8, 0]} rotation={[Math.PI, 0, 0]}>
       {/* Glow light */}
       <pointLight ref={glowRef} position={[0, 1.5, 0]} intensity={0.5} color="#ffd700" distance={4} />
       

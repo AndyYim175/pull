@@ -1,178 +1,132 @@
-import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, get, set, push, onValue, update } from 'firebase/database';
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, get, set, push, onValue, update } from "firebase/database";
 
-// Firebase config - replace with your actual config
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "demo-key",
-  authDomain: "demo.firebaseapp.com",
-  databaseURL: "https://demo-default.rtdb.firebaseio.com",
-  projectId: "demo",
-  storageBucket: "demo.appspot.com",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:000000000000"
+  apiKey: "AIzaSyBMaCOQyt3_sMf3lo7WgO5J7OuMnN40jM4",
+  authDomain: "global-stacker-game.firebaseapp.com",
+  databaseURL: "https://global-stacker-game-default-rtdb.firebaseio.com",
+  projectId: "global-stacker-game",
+  storageBucket: "global-stacker-game.firebasestorage.app",
+  messagingSenderId: "230230658853",
+  appId: "1:230230658853:web:8a302361aff7e1f55d14cc",
+  measurementId: "G-8XTMWW7P1K"
 };
 
-let db: ReturnType<typeof getDatabase> | null = null;
-let useLocalMode = true;
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
 
-try {
-  const app = initializeApp(firebaseConfig);
-  db = getDatabase(app);
-  useLocalMode = false;
-} catch {
-  useLocalMode = true;
-}
+const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1551985995778363515/uoe4pmd6Qd7t3LqEMOYZKqpexYwmTAqpKyQsmqkfBUK7TQt5MThJLYXwx_HOriKgIz7m";
 
-// Local storage fallback for demo
-const LOCAL_KEYS = {
-  PULLS_TO_WIN: 'sword_game_pulls_to_win',
-  LEADERBOARD: 'sword_game_leaderboard',
-  USERS: 'sword_game_users',
-};
-
-function getLocalPullsToWin(): number {
-  const val = localStorage.getItem(LOCAL_KEYS.PULLS_TO_WIN);
-  return val ? parseInt(val) : 1;
-}
-
-function setLocalPullsToWin(val: number) {
-  localStorage.setItem(LOCAL_KEYS.PULLS_TO_WIN, val.toString());
-}
-
-function getLocalLeaderboard(): any[] {
-  const val = localStorage.getItem(LOCAL_KEYS.LEADERBOARD);
-  return val ? JSON.parse(val) : [];
-}
-
-function addLocalLeaderboardEntry(entry: any) {
-  const lb = getLocalLeaderboard();
-  lb.unshift(entry);
-  localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(lb));
-}
-
-function getLocalUsers(): Record<string, any> {
-  const val = localStorage.getItem(LOCAL_KEYS.USERS);
-  return val ? JSON.parse(val) : {};
-}
-
-function setLocalUser(userId: string, data: any) {
-  const users = getLocalUsers();
-  users[userId] = data;
-  localStorage.setItem(LOCAL_KEYS.USERS, JSON.stringify(users));
-}
-
-// API
+// --- Pulls to Win ---
 export async function getPullsToWin(): Promise<number> {
-  if (useLocalMode) return getLocalPullsToWin();
-  try {
-    const snapshot = await get(ref(db!, 'pullsToWin'));
-    return snapshot.exists() ? snapshot.val() : 1;
-  } catch {
-    return getLocalPullsToWin();
-  }
+  const snapshot = await get(ref(db, 'pullsToWin'));
+  return snapshot.exists() ? snapshot.val() : 1;
 }
 
 export async function incrementPullsToWin(): Promise<number> {
-  if (useLocalMode) {
-    const current = getLocalPullsToWin();
-    setLocalPullsToWin(current + 1);
-    return current + 1;
-  }
-  try {
-    const snapshot = await get(ref(db!, 'pullsToWin'));
-    const current = snapshot.exists() ? snapshot.val() : 1;
-    await set(ref(db!, 'pullsToWin'), current + 1);
-    return current + 1;
-  } catch {
-    const current = getLocalPullsToWin();
-    setLocalPullsToWin(current + 1);
-    return current + 1;
-  }
+  const pullsRef = ref(db, 'pullsToWin');
+  const snapshot = await get(pullsRef);
+  const current = snapshot.exists() ? snapshot.val() : 1;
+  await set(pullsRef, current + 1);
+  return current + 1;
 }
 
+// --- Leaderboard ---
 export async function addWin(entry: { name: string; pulls: number; timestamp: number }) {
-  if (useLocalMode) {
-    addLocalLeaderboardEntry(entry);
-    return;
-  }
-  try {
-    const newRef = push(ref(db!, 'leaderboard'));
-    await set(newRef, entry);
-  } catch {
-    addLocalLeaderboardEntry(entry);
-  }
+  const newRef = push(ref(db, 'leaderboard'));
+  await set(newRef, entry);
 }
 
 export async function getLeaderboard(): Promise<any[]> {
-  if (useLocalMode) return getLocalLeaderboard();
-  try {
-    const snapshot = await get(ref(db!, 'leaderboard'));
-    if (!snapshot.exists()) return [];
-    const data = snapshot.val();
-    return Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
-  } catch {
-    return getLocalLeaderboard();
-  }
+  const snapshot = await get(ref(db, 'leaderboard'));
+  if (!snapshot.exists()) return [];
+  const data = snapshot.val();
+  return Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
 }
 
-export function subscribeLeaderboard(callback: (data: any[]) => void) {
-  if (useLocalMode) {
-    callback(getLocalLeaderboard());
-    return () => {};
-  }
-  try {
-    const unsub = onValue(ref(db!, 'leaderboard'), (snapshot) => {
-      if (!snapshot.exists()) {
-        callback([]);
-        return;
-      }
-      const data = snapshot.val();
-      const arr = Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
-      callback(arr);
-    });
-    return unsub;
-  } catch {
-    callback(getLocalLeaderboard());
-    return () => {};
-  }
+export function subscribeLeaderboard(callback: (data: any[]) => void): () => void {
+  const unsub = onValue(ref(db, 'leaderboard'), (snapshot) => {
+    if (!snapshot.exists()) {
+      callback([]);
+      return;
+    }
+    const data = snapshot.val();
+    const arr = Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
+    callback(arr);
+  });
+  return unsub;
+}
+
+// --- Users / Names ---
+export async function isNameTaken(name: string, excludeUserId?: string): Promise<boolean> {
+  const snapshot = await get(ref(db, 'names'));
+  if (!snapshot.exists()) return false;
+  const names: Record<string, string> = snapshot.val();
+  return Object.entries(names).some(([uid, n]) => n.toLowerCase() === name.toLowerCase() && uid !== excludeUserId);
 }
 
 export async function setUser(userId: string, name: string) {
-  if (useLocalMode) {
-    setLocalUser(userId, { name, createdAt: Date.now() });
-    return;
-  }
-  try {
-    await set(ref(db!, `users/${userId}`), { name, createdAt: Date.now() });
-  } catch {
-    setLocalUser(userId, { name, createdAt: Date.now() });
+  await set(ref(db, `names/${userId}`), name);
+}
+
+export async function renameUser(userId: string, oldName: string, newName: string) {
+  // Update the name registry
+  await set(ref(db, `names/${userId}`), newName);
+  
+  // Update all leaderboard entries with old name
+  const snapshot = await get(ref(db, 'leaderboard'));
+  if (!snapshot.exists()) return;
+  const data = snapshot.val();
+  const updates: Record<string, any> = {};
+  Object.entries(data).forEach(([key, entry]: [string, any]) => {
+    if (entry.name === oldName) {
+      updates[`leaderboard/${key}/name`] = newName;
+    }
+  });
+  if (Object.keys(updates).length > 0) {
+    await update(ref(db), updates);
   }
 }
 
-export async function renameUser(oldName: string, newName: string) {
-  if (useLocalMode) {
-    // Update leaderboard entries
-    const lb = getLocalLeaderboard();
-    const updated = lb.map((e: any) => e.name === oldName ? { ...e, name: newName } : e);
-    localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(updated));
-    return;
+// --- Discord Notifications ---
+export async function sendDiscordNotification(playerName: string, pullsAchieved: number, pullsToWin: number) {
+  const diff = pullsToWin - pullsAchieved;
+  let message = '';
+  let color = 0x888888;
+  
+  if (pullsAchieved >= pullsToWin) {
+    // Winner!
+    message = `🏆 **${playerName}** pulled the sword in **${pullsToWin} pulls**! A new champion rises!`;
+    color = 0xffd700;
+  } else if (diff <= 3) {
+    // Close to winning
+    const labels: Record<number, string> = {
+      1: '🔥',
+      2: '⚡',
+      3: '💫',
+    };
+    const emoji = labels[diff] || '✨';
+    message = `${emoji} **${playerName}** reached pull **${pullsAchieved}** (${diff} pull${diff > 1 ? 's' : ''} from victory!)`;
+    color = diff === 1 ? 0xff4444 : diff === 2 ? 0xff8800 : 0xffaa00;
+  } else {
+    return; // Don't notify for far-from-winning attempts
   }
+
   try {
-    const snapshot = await get(ref(db!, 'leaderboard'));
-    if (!snapshot.exists()) return;
-    const data = snapshot.val();
-    const updates: Record<string, any> = {};
-    Object.entries(data).forEach(([key, entry]: [string, any]) => {
-      if (entry.name === oldName) {
-        updates[`leaderboard/${key}/name`] = newName;
-      }
+    await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          description: message,
+          color: color,
+          footer: { text: `pulls to win: ${pullsToWin}` }
+        }]
+      }),
     });
-    if (Object.keys(updates).length > 0) {
-      await update(ref(db!), updates);
-    }
-  } catch {
-    const lb = getLocalLeaderboard();
-    const updated = lb.map((e: any) => e.name === oldName ? { ...e, name: newName } : e);
-    localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(updated));
+  } catch (e) {
+    console.warn('Discord notification failed:', e);
   }
 }
