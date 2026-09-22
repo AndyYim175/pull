@@ -348,7 +348,7 @@ export function Rocks() {
 
 export function Grass() {
   const grassRef = useRef<THREE.InstancedMesh>(null);
-  const count = 300;
+  const count = 200;
   const dummy = useMemo(() => new THREE.Object3D(), []);
   
   const grassData = useMemo(() => {
@@ -371,14 +371,18 @@ export function Grass() {
     if (!grassRef.current) return;
     const time = state.clock.elapsedTime;
     
-    grassData.forEach((grass, i) => {
-      dummy.position.set(grass.x, -2.1, grass.z);
-      dummy.rotation.set(0, grass.rotation, Math.sin(time * 1.5 + grass.phase) * 0.1);
-      dummy.scale.set(grass.scale * 0.3, grass.scale, grass.scale * 0.3);
-      dummy.updateMatrix();
-      grassRef.current!.setMatrixAt(i, dummy.matrix);
-    });
-    grassRef.current.instanceMatrix.needsUpdate = true;
+    try {
+      grassData.forEach((grass, i) => {
+        dummy.position.set(grass.x, -2.1, grass.z);
+        dummy.rotation.set(0, grass.rotation, Math.sin(time * 1.5 + grass.phase) * 0.1);
+        dummy.scale.set(grass.scale * 0.3, grass.scale, grass.scale * 0.3);
+        dummy.updateMatrix();
+        grassRef.current!.setMatrixAt(i, dummy.matrix);
+      });
+      grassRef.current.instanceMatrix.needsUpdate = true;
+    } catch (e) {
+      // Silently fail if instanced mesh has issues
+    }
   });
 
   return (
