@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import confetti from 'canvas-confetti';
 import { Sword, Stone, Ground, Particles, Trees, Rocks, Grass } from './components/Scene';
+import { FallbackScene } from './components/FallbackScene';
 import {
   getPullsToWin,
   incrementPullsToWin,
@@ -20,6 +21,16 @@ interface LeaderboardEntry {
   name: string;
   pulls: number;
   timestamp: number;
+}
+
+// WebGL detection
+function isWebGLAvailable(): boolean {
+  try {
+    const canvas = document.createElement('canvas');
+    return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+  } catch (e) {
+    return false;
+  }
 }
 
 function App() {
@@ -41,6 +52,8 @@ function App() {
   const [lastWinPulls, setLastWinPulls] = useState(0);
   const [cooldownTime, setCooldownTime] = useState(0);
   const [winStage, setWinStage] = useState<WinStage | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [webGLSupported] = useState(() => isWebGLAvailable());
 
   const animationRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
@@ -56,13 +69,43 @@ function App() {
 
   // Load initial data
   useEffect(() => {
-    getPullsToWin().then(setPullsToWin);
-    const unsub = subscribeLeaderboard((data) => {
-      setLeaderboard(data);
-    });
+    let unsub: (() => void) | undefined;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    
+    const loadData = async () => {
+      try {
+        const pulls = await getPullsToWin();
+        if (isMountedRef.current) {
+          setPullsToWin(pulls);
+        }
+      } catch (e) {
+        console.warn('Failed to load pullsToWin:', e);
+      }
+      
+      try {
+        unsub = subscribeLeaderboard((data) => {
+          if (isMountedRef.current) {
+            setLeaderboard(data);
+          }
+        });
+      } catch (e) {
+        console.warn('Failed to subscribe to leaderboard:', e);
+      }
+      
+      // Mark as loaded after a short delay to ensure canvas is ready
+      timeoutId = setTimeout(() => {
+        if (isMountedRef.current) {
+          setIsLoaded(true);
+        }
+      }, 300);
+    };
+    
+    loadData();
+    
     return () => {
       isMountedRef.current = false;
-      unsub();
+      if (unsub) unsub();
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
 
@@ -336,42 +379,76 @@ function App() {
     setWinStage('done');
   };
 
+  // Safety timeout - force load after 5 seconds
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!isLoaded) {
+        console.warn('Loading timeout - forcing display');
+        setIsLoaded(true);
+      }
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [isLoaded]);
+
+  // Loading screen
+  if (!isLoaded) {
+    return (
+      <div className="w-full h-screen flex items-center justify-center bg-[#0a0f0a] font-['Fira_Code',monospace]">
+        <div className="text-center">
+          <div className="text-4xl mb-4 animate-pulse">⚔️</div>
+          <p className="text-amber-400/60 text-sm tracking-wider">loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-screen relative overflow-hidden bg-[#0a0f0a] font-['Fira_Code',monospace]">
-      {/* 3D Canvas */}
-      <Canvas
-        camera={{ position: [0, 1, 5], fov: 50 }}
-        shadows
-        className="absolute inset-0"
-      >
-        <ambientLight intensity={0.3} />
-        <directionalLight
-          position={[5, 8, 5]}
-          intensity={1.2}
-          castShadow
-          shadow-mapSize={[1024, 1024]}
-        />
-        <pointLight position={[0, 3, 0]} intensity={0.8} color="#ffd700" distance={8} />
-        <pointLight position={[-3, 2, -2]} intensity={0.3} color="#4488ff" distance={10} />
-        <fog attach="fog" args={['#0a1a0a', 8, 25]} />
-        
-        <Sword pullProgress={pullProgress} shaking={gameState === 'pulling'} />
-        <Stone />
-        <Ground />
-        <Particles />
-        <Trees />
-        <Rocks />
-        <Grass />
-        
-        <OrbitControls
-          enablePan={false}
-          enableZoom={false}
-          maxPolarAngle={Math.PI / 2.2}
-          minPolarAngle={Math.PI / 5}
-          autoRotate={gameState === 'idle'}
-          autoRotateSpeed={0.3}
-        />
-      </Canvas>
+      {/* 3D Canvas or Fallback */}
+      {webGLSupported ? (
+        <Canvas
+          camera={{ position: [0, 1, 5], fov: 50 }}
+          shadows
+          className="absolute inset-0"
+          dpr={[1, 2]}
+          gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+          onCreated={({ gl }) => {
+            gl.setClearColor('#0a0f0a');
+          }}
+        >
+          <ambientLight intensity={0.3} />
+          <directionalLight
+            position={[5, 8, 5]}
+            intensity={1.2}
+            castShadow
+            shadow-mapSize={[1024, 1024]}
+          />
+          <pointLight position={[0, 3, 0]} intensity={0.8} color="#ffd700" distance={8} />
+          <pointLight position={[-3, 2, -2]} intensity={0.3} color="#4488ff" distance={10} />
+          <fog attach="fog" args={['#0a1a0a', 8, 25]} />
+          
+          <Suspense fallback={null}>
+            <Sword pullProgress={pullProgress} shaking={gameState === 'pulling'} />
+            <Stone />
+            <Ground />
+            <Particles />
+            <Trees />
+            <Rocks />
+            <Grass />
+          </Suspense>
+          
+          <OrbitControls
+            enablePan={false}
+            enableZoom={false}
+            maxPolarAngle={Math.PI / 2.2}
+            minPolarAngle={Math.PI / 5}
+            autoRotate={gameState === 'idle'}
+            autoRotateSpeed={0.3}
+          />
+        </Canvas>
+      ) : (
+        <FallbackScene pullProgress={pullProgress} />
+      )}
 
       {/* Minimal UI Overlay */}
       <div className="absolute inset-0 pointer-events-none">
