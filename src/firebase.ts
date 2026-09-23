@@ -14,79 +14,230 @@ const firebaseConfig = {
   measurementId: "G-8XTMWW7P1K"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+let db: any = null;
+let firebaseAvailable = false;
+
+try {
+  const app = initializeApp(firebaseConfig);
+  db = getDatabase(app);
+  firebaseAvailable = true;
+} catch (error) {
+  console.warn('Firebase initialization failed, using local storage fallback');
+  firebaseAvailable = false;
+}
 
 const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1551985995778363515/uoe4pmd6Qd7t3LqEMOYZKqpexYwmTAqpKyQsmqkfBUK7TQt5MThJLYXwx_HOriKgIz7m";
 
+// Local storage fallback
+const LOCAL_KEYS = {
+  PULLS_TO_WIN: 'sword_game_pulls_to_win',
+  LEADERBOARD: 'sword_game_leaderboard',
+  NAMES: 'sword_game_names',
+};
+
+function getLocalPullsToWin(): number {
+  const val = localStorage.getItem(LOCAL_KEYS.PULLS_TO_WIN);
+  return val ? parseInt(val) : 1;
+}
+
+function setLocalPullsToWin(value: number): void {
+  localStorage.setItem(LOCAL_KEYS.PULLS_TO_WIN, value.toString());
+}
+
+function getLocalLeaderboard(): any[] {
+  const val = localStorage.getItem(LOCAL_KEYS.LEADERBOARD);
+  return val ? JSON.parse(val) : [];
+}
+
+function addLocalLeaderboardEntry(entry: any): void {
+  const lb = getLocalLeaderboard();
+  lb.unshift(entry);
+  localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(lb));
+}
+
+function getLocalNames(): Record<string, string> {
+  const val = localStorage.getItem(LOCAL_KEYS.NAMES);
+  return val ? JSON.parse(val) : {};
+}
+
+function setLocalNames(names: Record<string, string>): void {
+  localStorage.setItem(LOCAL_KEYS.NAMES, JSON.stringify(names));
+}
+
 // --- Pulls to Win ---
 export async function getPullsToWin(): Promise<number> {
-  const snapshot = await get(ref(db, 'pullsToWin'));
-  return snapshot.exists() ? snapshot.val() : 1;
+  if (!firebaseAvailable) {
+    return getLocalPullsToWin();
+  }
+  try {
+    const snapshot = await get(ref(db, 'pullsToWin'));
+    return snapshot.exists() ? snapshot.val() : 1;
+  } catch (error) {
+    console.warn('Failed to get pullsToWin from Firebase:', error);
+    return getLocalPullsToWin();
+  }
 }
 
 export async function incrementPullsToWin(): Promise<number> {
-  const pullsRef = ref(db, 'pullsToWin');
-  const snapshot = await get(pullsRef);
-  const current = snapshot.exists() ? snapshot.val() : 1;
-  await set(pullsRef, current + 1);
-  return current + 1;
+  if (!firebaseAvailable) {
+    const current = getLocalPullsToWin();
+    setLocalPullsToWin(current + 1);
+    return current + 1;
+  }
+  try {
+    const pullsRef = ref(db, 'pullsToWin');
+    const snapshot = await get(pullsRef);
+    const current = snapshot.exists() ? snapshot.val() : 1;
+    await set(pullsRef, current + 1);
+    return current + 1;
+  } catch (error) {
+    console.warn('Failed to increment pullsToWin in Firebase:', error);
+    const current = getLocalPullsToWin();
+    setLocalPullsToWin(current + 1);
+    return current + 1;
+  }
 }
 
 // --- Leaderboard ---
 export async function addWin(entry: { name: string; pulls: number; timestamp: number }) {
-  const newRef = push(ref(db, 'leaderboard'));
-  await set(newRef, entry);
+  if (!firebaseAvailable) {
+    addLocalLeaderboardEntry(entry);
+    return;
+  }
+  try {
+    const newRef = push(ref(db, 'leaderboard'));
+    await set(newRef, entry);
+  } catch (error) {
+    console.warn('Failed to add win to Firebase:', error);
+    addLocalLeaderboardEntry(entry);
+  }
 }
 
 export async function getLeaderboard(): Promise<any[]> {
-  const snapshot = await get(ref(db, 'leaderboard'));
-  if (!snapshot.exists()) return [];
-  const data = snapshot.val();
-  return Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
+  if (!firebaseAvailable) {
+    return getLocalLeaderboard();
+  }
+  try {
+    const snapshot = await get(ref(db, 'leaderboard'));
+    if (!snapshot.exists()) return [];
+    const data = snapshot.val();
+    return Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
+  } catch (error) {
+    console.warn('Failed to get leaderboard from Firebase:', error);
+    return getLocalLeaderboard();
+  }
 }
 
 export function subscribeLeaderboard(callback: (data: any[]) => void): () => void {
-  const unsub = onValue(ref(db, 'leaderboard'), (snapshot) => {
-    if (!snapshot.exists()) {
-      callback([]);
-      return;
-    }
-    const data = snapshot.val();
-    const arr = Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
-    callback(arr);
-  });
-  return unsub;
+  if (!firebaseAvailable) {
+    // For local storage, just call once with current data
+    callback(getLocalLeaderboard());
+    return () => {};
+  }
+  try {
+    const unsub = onValue(ref(db, 'leaderboard'), (snapshot) => {
+      if (!snapshot.exists()) {
+        callback([]);
+        return;
+      }
+      const data = snapshot.val();
+      const arr = Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
+      callback(arr);
+    }, (error) => {
+      console.warn('Firebase leaderboard subscription error:', error);
+      callback(getLocalLeaderboard());
+    });
+    return unsub;
+  } catch (error) {
+    console.warn('Failed to subscribe to leaderboard:', error);
+    callback(getLocalLeaderboard());
+    return () => {};
+  }
 }
 
 // --- Users / Names ---
 export async function isNameTaken(name: string, excludeUserId?: string): Promise<boolean> {
-  const snapshot = await get(ref(db, 'names'));
-  if (!snapshot.exists()) return false;
-  const names: Record<string, string> = snapshot.val();
-  return Object.entries(names).some(([uid, n]) => n.toLowerCase() === name.toLowerCase() && uid !== excludeUserId);
+  if (!firebaseAvailable) {
+    const names = getLocalNames();
+    return Object.entries(names).some(([uid, n]) => 
+      n.toLowerCase() === name.toLowerCase() && uid !== excludeUserId
+    );
+  }
+  try {
+    const snapshot = await get(ref(db, 'names'));
+    if (!snapshot.exists()) return false;
+    const names: Record<string, string> = snapshot.val();
+    return Object.entries(names).some(([uid, n]) => 
+      n.toLowerCase() === name.toLowerCase() && uid !== excludeUserId
+    );
+  } catch (error) {
+    console.warn('Failed to check name in Firebase:', error);
+    const names = getLocalNames();
+    return Object.entries(names).some(([uid, n]) => 
+      n.toLowerCase() === name.toLowerCase() && uid !== excludeUserId
+    );
+  }
 }
 
 export async function setUser(userId: string, name: string) {
-  await set(ref(db, `names/${userId}`), name);
+  if (!firebaseAvailable) {
+    const names = getLocalNames();
+    names[userId] = name;
+    setLocalNames(names);
+    return;
+  }
+  try {
+    await set(ref(db, `names/${userId}`), name);
+  } catch (error) {
+    console.warn('Failed to set user in Firebase:', error);
+    const names = getLocalNames();
+    names[userId] = name;
+    setLocalNames(names);
+  }
 }
 
 export async function renameUser(userId: string, oldName: string, newName: string) {
-  // Update the name registry
-  await set(ref(db, `names/${userId}`), newName);
-  
-  // Update all leaderboard entries with old name
-  const snapshot = await get(ref(db, 'leaderboard'));
-  if (!snapshot.exists()) return;
-  const data = snapshot.val();
-  const updates: Record<string, any> = {};
-  Object.entries(data).forEach(([key, entry]: [string, any]) => {
-    if (entry.name === oldName) {
-      updates[`leaderboard/${key}/name`] = newName;
+  if (!firebaseAvailable) {
+    const names = getLocalNames();
+    names[userId] = newName;
+    setLocalNames(names);
+    
+    // Update leaderboard entries
+    const lb = getLocalLeaderboard();
+    const updated = lb.map((entry: any) => 
+      entry.name === oldName ? { ...entry, name: newName } : entry
+    );
+    localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(updated));
+    return;
+  }
+  try {
+    // Update the name registry
+    await set(ref(db, `names/${userId}`), newName);
+    
+    // Update all leaderboard entries with old name
+    const snapshot = await get(ref(db, 'leaderboard'));
+    if (!snapshot.exists()) return;
+    const data = snapshot.val();
+    const updates: Record<string, any> = {};
+    Object.entries(data).forEach(([key, entry]: [string, any]) => {
+      if (entry.name === oldName) {
+        updates[`leaderboard/${key}/name`] = newName;
+      }
+    });
+    if (Object.keys(updates).length > 0) {
+      await update(ref(db), updates);
     }
-  });
-  if (Object.keys(updates).length > 0) {
-    await update(ref(db), updates);
+  } catch (error) {
+    console.warn('Failed to rename user in Firebase:', error);
+    const names = getLocalNames();
+    names[userId] = newName;
+    setLocalNames(names);
+    
+    const lb = getLocalLeaderboard();
+    const updated = lb.map((entry: any) => 
+      entry.name === oldName ? { ...entry, name: newName } : entry
+    );
+    localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(updated));
   }
 }
 

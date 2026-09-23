@@ -4,6 +4,7 @@ import { OrbitControls } from '@react-three/drei';
 import confetti from 'canvas-confetti';
 import { Sword, Stone, Ground, Particles, Trees, Rocks, Grass } from './components/Scene';
 import { FallbackScene } from './components/FallbackScene';
+import { CanvasErrorBoundary } from './components/CanvasErrorBoundary';
 import {
   getPullsToWin,
   incrementPullsToWin,
@@ -379,14 +380,14 @@ function App() {
     setWinStage('done');
   };
 
-  // Safety timeout - force load after 5 seconds
+  // Safety timeout - force load after 3 seconds
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (!isLoaded) {
         console.warn('Loading timeout - forcing display');
         setIsLoaded(true);
       }
-    }, 5000);
+    }, 3000);
     return () => clearTimeout(timeout);
   }, [isLoaded]);
 
@@ -406,46 +407,48 @@ function App() {
     <div className="w-full h-screen relative overflow-hidden bg-[#0a0f0a] font-['Fira_Code',monospace]">
       {/* 3D Canvas or Fallback */}
       {webGLSupported ? (
-        <Canvas
-          camera={{ position: [0, 1, 5], fov: 50 }}
-          shadows
-          className="absolute inset-0"
-          dpr={[1, 2]}
-          gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
-          onCreated={({ gl }) => {
-            gl.setClearColor('#0a0f0a');
-          }}
-        >
-          <ambientLight intensity={0.3} />
-          <directionalLight
-            position={[5, 8, 5]}
-            intensity={1.2}
-            castShadow
-            shadow-mapSize={[1024, 1024]}
-          />
-          <pointLight position={[0, 3, 0]} intensity={0.8} color="#ffd700" distance={8} />
-          <pointLight position={[-3, 2, -2]} intensity={0.3} color="#4488ff" distance={10} />
-          <fog attach="fog" args={['#0a1a0a', 8, 25]} />
-          
-          <Suspense fallback={null}>
-            <Sword pullProgress={pullProgress} shaking={gameState === 'pulling'} />
-            <Stone />
-            <Ground />
-            <Particles />
-            <Trees />
-            <Rocks />
-            <Grass />
-          </Suspense>
-          
-          <OrbitControls
-            enablePan={false}
-            enableZoom={false}
-            maxPolarAngle={Math.PI / 2.2}
-            minPolarAngle={Math.PI / 5}
-            autoRotate={gameState === 'idle'}
-            autoRotateSpeed={0.3}
-          />
-        </Canvas>
+        <CanvasErrorBoundary fallback={<FallbackScene pullProgress={pullProgress} />}>
+          <Canvas
+            camera={{ position: [0, 1, 5], fov: 50 }}
+            shadows
+            className="absolute inset-0"
+            dpr={[1, 2]}
+            gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+            onCreated={({ gl }) => {
+              gl.setClearColor('#0a0f0a');
+            }}
+          >
+            <ambientLight intensity={0.3} />
+            <directionalLight
+              position={[5, 8, 5]}
+              intensity={1.2}
+              castShadow
+              shadow-mapSize={[1024, 1024]}
+            />
+            <pointLight position={[0, 3, 0]} intensity={0.8} color="#ffd700" distance={8} />
+            <pointLight position={[-3, 2, -2]} intensity={0.3} color="#4488ff" distance={10} />
+            <fog attach="fog" args={['#0a1a0a', 8, 25]} />
+            
+            <Suspense fallback={null}>
+              <Sword pullProgress={pullProgress} shaking={gameState === 'pulling'} />
+              <Stone />
+              <Ground />
+              <Particles />
+              <Trees />
+              <Rocks />
+              <Grass />
+            </Suspense>
+            
+            <OrbitControls
+              enablePan={false}
+              enableZoom={false}
+              maxPolarAngle={Math.PI / 2.2}
+              minPolarAngle={Math.PI / 5}
+              autoRotate={gameState === 'idle'}
+              autoRotateSpeed={0.3}
+            />
+          </Canvas>
+        </CanvasErrorBoundary>
       ) : (
         <FallbackScene pullProgress={pullProgress} />
       )}
