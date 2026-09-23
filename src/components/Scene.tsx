@@ -2,6 +2,9 @@ import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
+// Suppress unused variable warnings
+void THREE;
+
 interface SwordProps {
   pullProgress: number; // 0 = fully in stone, 1 = fully pulled
   shaking: boolean;
@@ -218,65 +221,41 @@ export function Ground() {
 }
 
 export function Particles() {
-  const particlesRef = useRef<THREE.Points>(null);
-  const count = 150;
-  
-  const positions = useMemo(() => {
-    const pos = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 16;
-      pos[i * 3 + 1] = Math.random() * 8;
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 16;
+  // Simplified particles - static points
+  const particlePositions = useMemo(() => {
+    const positions = [];
+    for (let i = 0; i < 50; i++) {
+      positions.push([
+        (Math.random() - 0.5) * 15,
+        Math.random() * 7,
+        (Math.random() - 0.5) * 15,
+      ] as [number, number, number]);
     }
-    return pos;
+    return positions;
   }, []);
 
-  useFrame((_, delta) => {
-    if (!particlesRef.current) return;
-    const pos = particlesRef.current.geometry.attributes.position;
-    for (let i = 0; i < count; i++) {
-      let y = pos.getY(i);
-      y -= delta * 0.2;
-      if (y < -0.5) y = 8;
-      pos.setY(i, y);
-      // Gentle horizontal drift
-      const x = pos.getX(i) + Math.sin(y * 0.5 + i) * delta * 0.05;
-      pos.setX(i, x);
-    }
-    pos.needsUpdate = true;
-  });
-
   return (
-    <points ref={particlesRef}>
-      <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          args={[positions, 3]}
-          count={count}
-        />
-      </bufferGeometry>
-      <pointsMaterial 
-        size={0.04} 
-        color="#ffd700" 
-        transparent 
-        opacity={0.5}
-        sizeAttenuation
-      />
-    </points>
+    <>
+      {particlePositions.map((pos, i) => (
+        <mesh key={i} position={pos}>
+          <sphereGeometry args={[0.02, 4, 4]} />
+          <meshBasicMaterial color="#ffd700" transparent opacity={0.4} />
+        </mesh>
+      ))}
+    </>
   );
 }
 
 export function Trees() {
   const trees = useMemo(() => {
     const arr = [];
-    for (let i = 0; i < 20; i++) {
-      const angle = (i / 20) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
-      const radius = 7 + Math.random() * 6;
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const radius = 8 + Math.random() * 3;
       arr.push({
         x: Math.cos(angle) * radius,
         z: Math.sin(angle) * radius,
-        scale: 0.7 + Math.random() * 0.8,
-        rotation: Math.random() * Math.PI * 2,
+        scale: 0.8 + Math.random() * 0.4,
       });
     }
     return arr;
@@ -285,26 +264,20 @@ export function Trees() {
   return (
     <>
       {trees.map((tree, i) => (
-        <group key={i} position={[tree.x, -2.2, tree.z]} scale={tree.scale} rotation={[0, tree.rotation, 0]}>
+        <group key={i} position={[tree.x, -2.2, tree.z]} scale={tree.scale}>
           {/* Trunk */}
-          <mesh position={[0, 1.5, 0]} castShadow>
-            <cylinderGeometry args={[0.12, 0.18, 3, 6]} />
+          <mesh position={[0, 1.5, 0]}>
+            <cylinderGeometry args={[0.15, 0.2, 3, 6]} />
             <meshStandardMaterial color="#2d1f14" roughness={0.95} />
           </mesh>
-          {/* Lower foliage */}
-          <mesh position={[0, 3.2, 0]} castShadow>
-            <coneGeometry args={[1.3, 2.8, 7]} />
+          {/* Foliage */}
+          <mesh position={[0, 3.5, 0]}>
+            <coneGeometry args={[1.2, 3, 6]} />
             <meshStandardMaterial color="#1a4d1a" roughness={0.85} />
           </mesh>
-          {/* Upper foliage */}
-          <mesh position={[0, 4.5, 0]} castShadow>
-            <coneGeometry args={[0.9, 2.2, 7]} />
+          <mesh position={[0, 4.8, 0]}>
+            <coneGeometry args={[0.8, 2, 6]} />
             <meshStandardMaterial color="#1f5c1f" roughness={0.85} />
-          </mesh>
-          {/* Top */}
-          <mesh position={[0, 5.5, 0]} castShadow>
-            <coneGeometry args={[0.5, 1.5, 6]} />
-            <meshStandardMaterial color="#245a24" roughness={0.85} />
           </mesh>
         </group>
       ))}
@@ -347,48 +320,29 @@ export function Rocks() {
 }
 
 export function Grass() {
-  const grassRef = useRef<THREE.InstancedMesh>(null);
-  const count = 200;
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  
-  const grassData = useMemo(() => {
-    const data = [];
-    for (let i = 0; i < count; i++) {
+  // Simplified grass - just a few static patches
+  const grassPatches = useMemo(() => {
+    const patches = [];
+    for (let i = 0; i < 30; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const radius = 1.5 + Math.random() * 5;
-      data.push({
+      const radius = 2 + Math.random() * 4;
+      patches.push({
         x: Math.cos(angle) * radius,
         z: Math.sin(angle) * radius,
-        scale: 0.3 + Math.random() * 0.4,
-        rotation: Math.random() * Math.PI,
-        phase: Math.random() * Math.PI * 2,
+        scale: 0.2 + Math.random() * 0.3,
       });
     }
-    return data;
+    return patches;
   }, []);
 
-  useFrame((state) => {
-    if (!grassRef.current) return;
-    const time = state.clock.elapsedTime;
-    
-    try {
-      grassData.forEach((grass, i) => {
-        dummy.position.set(grass.x, -2.1, grass.z);
-        dummy.rotation.set(0, grass.rotation, Math.sin(time * 1.5 + grass.phase) * 0.1);
-        dummy.scale.set(grass.scale * 0.3, grass.scale, grass.scale * 0.3);
-        dummy.updateMatrix();
-        grassRef.current!.setMatrixAt(i, dummy.matrix);
-      });
-      grassRef.current.instanceMatrix.needsUpdate = true;
-    } catch (e) {
-      // Silently fail if instanced mesh has issues
-    }
-  });
-
   return (
-    <instancedMesh ref={grassRef} args={[undefined, undefined, count]}>
-      <coneGeometry args={[0.1, 0.5, 4]} />
-      <meshStandardMaterial color="#2d6b2d" roughness={0.9} side={THREE.DoubleSide} />
-    </instancedMesh>
+    <>
+      {grassPatches.map((patch, i) => (
+        <mesh key={i} position={[patch.x, -2.1, patch.z]} scale={patch.scale}>
+          <coneGeometry args={[0.15, 0.4, 4]} />
+          <meshStandardMaterial color="#2d6b2d" roughness={0.9} />
+        </mesh>
+      ))}
+    </>
   );
 }
