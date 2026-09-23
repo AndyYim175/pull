@@ -62,14 +62,22 @@
     </div>
     <div id="root"></div>
     <script>
-      // Hide loading screen after 5 seconds max
+      // Show error if app doesn't load within 10 seconds
       setTimeout(() => {
         const loading = document.getElementById('loading');
-        if (loading) {
-          loading.classList.add('hidden');
-          setTimeout(() => loading.remove(), 300);
+        const root = document.getElementById('root');
+        if (loading && root && root.children.length === 0) {
+          // App didn't load, show error
+          loading.innerHTML = `
+            <div style="text-align:center;padding:2rem;">
+              <div style="font-size:3rem;margin-bottom:1rem;">⚠️</div>
+              <div style="color:#ffd700;font-size:1.2rem;margin-bottom:1rem;">Failed to load</div>
+              <div style="color:rgba(255,255,255,0.5);font-size:0.875rem;margin-bottom:1.5rem;">The app couldn't start. Please try refreshing.</div>
+              <button onclick="window.location.reload()" style="padding:0.75rem 2rem;background:rgba(255,215,0,0.2);border:1px solid rgba(255,215,0,0.5);border-radius:0.5rem;color:#ffd700;cursor:pointer;font-family:inherit;font-size:0.875rem;">Reload Page</button>
+            </div>
+          `;
         }
-      }, 5000);
+      }, 10000);
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

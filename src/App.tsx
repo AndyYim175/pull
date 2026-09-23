@@ -55,6 +55,8 @@ function App() {
   const [winStage, setWinStage] = useState<WinStage | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [webGLSupported] = useState(() => isWebGLAvailable());
+  const [canvasReady, setCanvasReady] = useState(false);
+  const [useFallback, setUseFallback] = useState(false);
 
   const animationRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
@@ -409,6 +411,19 @@ function App() {
     }
   }, [isLoaded]);
 
+  // Check if Canvas has rendered, if not use fallback
+  useEffect(() => {
+    if (isLoaded && webGLSupported && !useFallback) {
+      const canvasTimeout = setTimeout(() => {
+        if (!canvasReady) {
+          console.warn('Canvas did not initialize, using fallback scene');
+          setUseFallback(true);
+        }
+      }, 2000);
+      return () => clearTimeout(canvasTimeout);
+    }
+  }, [isLoaded, webGLSupported, canvasReady, useFallback]);
+
   // Loading screen
   if (!isLoaded) {
     return (
@@ -424,7 +439,7 @@ function App() {
   return (
     <div className="w-full h-screen relative overflow-hidden bg-[#0a0f0a] font-['Fira_Code',monospace]">
       {/* 3D Canvas or Fallback */}
-      {webGLSupported ? (
+      {(webGLSupported && !useFallback) ? (
         <CanvasErrorBoundary fallback={<FallbackScene pullProgress={pullProgress} />}>
           <Canvas
             camera={{ position: [0, 1, 5], fov: 50 }}
@@ -438,6 +453,7 @@ function App() {
             onCreated={({ gl }) => {
               gl.setClearColor('#0a0f0a');
               console.log('Canvas created successfully');
+              setCanvasReady(true);
             }}
           >
             <ambientLight intensity={0.4} />
@@ -466,7 +482,9 @@ function App() {
           </Canvas>
         </CanvasErrorBoundary>
       ) : (
-        <FallbackScene pullProgress={pullProgress} />
+        <div className="absolute inset-0">
+          <FallbackScene pullProgress={pullProgress} />
+        </div>
       )}
 
       {/* Minimal UI Overlay */}
