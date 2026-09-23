@@ -1,9 +1,54 @@
-// Firebase configuration - lazy loaded
+// Firebase configuration
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, get, set, push, onValue, update } from 'firebase/database';
+
 let db: any = null;
 let firebaseAvailable = false;
-let firebaseInitialized = false;
+let firebaseInitAttempted = false;
 
 const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1551985995778363515/uoe4pmd6Qd7t3LqEMOYZKqpexYwmTAqpKyQsmqkfBUK7TQt5MThJLYXwx_HOriKgIz7m";
+
+// Initialize Firebase with retry
+function initFirebase() {
+  if (firebaseInitAttempted) return;
+  firebaseInitAttempted = true;
+  
+  try {
+    const firebaseConfig = {
+      apiKey: "AIzaSyBMaCOQyt3_sMf3lo7WgO5J7OuMnN40jM4",
+      authDomain: "global-stacker-game.firebaseapp.com",
+      databaseURL: "https://global-stacker-game-default-rtdb.firebaseio.com",
+      projectId: "global-stacker-game",
+      storageBucket: "global-stacker-game.firebasestorage.app",
+      messagingSenderId: "230230658853",
+      appId: "1:230230658853:web:8a302361aff7e1f55d14cc",
+      measurementId: "G-8XTMWW7P1K"
+    };
+    
+    const app = initializeApp(firebaseConfig);
+    db = getDatabase(app);
+    
+    // Test connection
+    get(ref(db, '.info/connected')).then((snapshot) => {
+      if (snapshot.val() === true) {
+        firebaseAvailable = true;
+        console.log('✅ Firebase connected successfully');
+      } else {
+        console.warn('⚠️ Firebase not connected');
+        firebaseAvailable = false;
+      }
+    }).catch((err) => {
+      console.warn('⚠️ Firebase connection test failed:', err);
+      firebaseAvailable = false;
+    });
+  } catch (error) {
+    console.warn('❌ Firebase initialization failed:', error);
+    firebaseAvailable = false;
+  }
+}
+
+// Initialize immediately
+initFirebase();
 
 // Local storage fallback
 const LOCAL_KEYS = {
@@ -65,51 +110,13 @@ function setLocalNames(names: Record<string, string>): void {
   }
 }
 
-// Initialize Firebase lazily
-export async function initFirebase(): Promise<boolean> {
-  if (firebaseInitialized) {
-    return firebaseAvailable;
-  }
-  
-  firebaseInitialized = true;
-  
-  try {
-    const { initializeApp } = await import('firebase/app');
-    const { getDatabase } = await import('firebase/database');
-    
-    const firebaseConfig = {
-      apiKey: "AIzaSyBMaCOQyt3_sMf3lo7WgO5J7OuMnN40jM4",
-      authDomain: "global-stacker-game.firebaseapp.com",
-      databaseURL: "https://global-stacker-game-default-rtdb.firebaseio.com",
-      projectId: "global-stacker-game",
-      storageBucket: "global-stacker-game.firebasestorage.app",
-      messagingSenderId: "230230658853",
-      appId: "1:230230658853:web:8a302361aff7e1f55d14cc",
-      measurementId: "G-8XTMWW7P1K"
-    };
-    
-    const app = initializeApp(firebaseConfig);
-    db = getDatabase(app);
-    firebaseAvailable = true;
-    console.log('Firebase initialized successfully');
-  } catch (error) {
-    console.warn('Firebase initialization failed, using local storage:', error);
-    firebaseAvailable = false;
-  }
-  
-  return firebaseAvailable;
-}
-
 // --- Pulls to Win ---
 export async function getPullsToWin(): Promise<number> {
-  await initFirebase();
-  
   if (!firebaseAvailable || !db) {
     return getLocalPullsToWin();
   }
   
   try {
-    const { get, ref } = await import('firebase/database');
     const snapshot = await get(ref(db, 'pullsToWin'));
     return snapshot.exists() ? snapshot.val() : getLocalPullsToWin();
   } catch (error) {
@@ -119,8 +126,6 @@ export async function getPullsToWin(): Promise<number> {
 }
 
 export async function incrementPullsToWin(): Promise<number> {
-  await initFirebase();
-  
   if (!firebaseAvailable || !db) {
     const current = getLocalPullsToWin();
     setLocalPullsToWin(current + 1);
@@ -128,7 +133,6 @@ export async function incrementPullsToWin(): Promise<number> {
   }
   
   try {
-    const { get, set, ref } = await import('firebase/database');
     const pullsRef = ref(db, 'pullsToWin');
     const snapshot = await get(pullsRef);
     const current = snapshot.exists() ? snapshot.val() : 1;
@@ -144,15 +148,12 @@ export async function incrementPullsToWin(): Promise<number> {
 
 // --- Leaderboard ---
 export async function addWin(entry: { name: string; pulls: number; timestamp: number }) {
-  await initFirebase();
-  
   if (!firebaseAvailable || !db) {
     addLocalLeaderboardEntry(entry);
     return;
   }
   
   try {
-    const { push, set, ref } = await import('firebase/database');
     const newRef = push(ref(db, 'leaderboard'));
     await set(newRef, entry);
   } catch (error) {
@@ -163,54 +164,39 @@ export async function addWin(entry: { name: string; pulls: number; timestamp: nu
 
 export function subscribeLeaderboard(callback: (data: any[]) => void): () => void {
   let unsub: (() => void) | null = null;
-  let cancelled = false;
   
   // Start with local data immediately
   callback(getLocalLeaderboard());
   
-  // Try to subscribe to Firebase
-  initFirebase().then((available) => {
-    if (cancelled) return;
-    
-    if (!available || !db) {
-      return;
-    }
-    
-    import('firebase/database').then(({ onValue, ref }) => {
-      if (cancelled) return;
-      
-      try {
-        unsub = onValue(ref(db, 'leaderboard'), (snapshot) => {
-          if (cancelled) return;
-          
-          if (!snapshot.exists()) {
-            callback([]);
-            return;
-          }
-          
-          const data = snapshot.val();
-          const arr = Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
-          callback(arr);
-        }, (error) => {
-          console.warn('Firebase subscription error:', error);
-          callback(getLocalLeaderboard());
-        });
-      } catch (error) {
-        console.warn('Failed to subscribe to leaderboard:', error);
+  if (!firebaseAvailable || !db) {
+    return () => {};
+  }
+  
+  try {
+    unsub = onValue(ref(db, 'leaderboard'), (snapshot) => {
+      if (!snapshot.exists()) {
+        callback([]);
+        return;
       }
+      
+      const data = snapshot.val();
+      const arr = Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
+      callback(arr);
+    }, (error) => {
+      console.warn('Firebase subscription error:', error);
+      callback(getLocalLeaderboard());
     });
-  });
+  } catch (error) {
+    console.warn('Failed to subscribe to leaderboard:', error);
+  }
   
   return () => {
-    cancelled = true;
     if (unsub) unsub();
   };
 }
 
 // --- Users / Names ---
 export async function isNameTaken(name: string, excludeUserId?: string): Promise<boolean> {
-  await initFirebase();
-  
   if (!firebaseAvailable || !db) {
     const names = getLocalNames();
     return Object.entries(names).some(([uid, n]) => 
@@ -219,7 +205,6 @@ export async function isNameTaken(name: string, excludeUserId?: string): Promise
   }
   
   try {
-    const { get, ref } = await import('firebase/database');
     const snapshot = await get(ref(db, 'names'));
     if (!snapshot.exists()) return false;
     const names: Record<string, string> = snapshot.val();
@@ -236,8 +221,6 @@ export async function isNameTaken(name: string, excludeUserId?: string): Promise
 }
 
 export async function renameUser(userId: string, oldName: string, newName: string) {
-  await initFirebase();
-  
   // Always update local storage
   const names = getLocalNames();
   names[userId] = newName;
@@ -258,7 +241,6 @@ export async function renameUser(userId: string, oldName: string, newName: strin
   }
   
   try {
-    const { set, get, update, ref } = await import('firebase/database');
     await set(ref(db, `names/${userId}`), newName);
     
     const snapshot = await get(ref(db, 'leaderboard'));

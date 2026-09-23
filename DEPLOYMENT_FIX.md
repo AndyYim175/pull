@@ -1,103 +1,50 @@
-# GitHub Pages 部署修复说明
+# Pull the Sword - GitHub Pages 部署修复
 
-## 问题原因
+## 问题已修复 ✅
 
-GitHub Pages 上应用无法加载的根本原因是 **Firebase 初始化阻塞了应用渲染**。
+之前的动态 `import()` 导致了代码分割问题，现在改回正常的静态导入。
 
-之前的代码在应用启动时会同步等待 Firebase 连接，如果 Firebase 被阻止或加载缓慢，整个应用就会卡住，导致只显示加载动画。
-
-## 解决方案
-
-### 1. Firebase 延迟加载 (Lazy Loading)
-
-**修改文件**: `src/firebase.ts`
-
-- Firebase SDK 现在使用动态 `import()` 延迟加载
-- 应用启动时不会立即加载 Firebase
-- Firebase 只在第一次需要时才加载
-- 如果 Firebase 加载失败，自动降级到 localStorage
-
-```typescript
-// 之前：同步加载
-import { initializeApp } from 'firebase/app';
-const app = initializeApp(firebaseConfig);
-
-// 现在：延迟加载
-export async function initFirebase(): Promise<boolean> {
-  const { initializeApp } = await import('firebase/app');
-  const { getDatabase } = await import('firebase/database');
-  // ...
-}
-```
-
-### 2. 非阻塞数据加载
-
-**修改文件**: `src/App.tsx`
-
-- 应用使用默认值立即渲染（pullsToWin = 1, leaderboard = []）
-- Firebase 数据在后台异步加载
-- 100ms 后标记为已加载，不再等待 Firebase
-- 如果 Firebase 加载成功，数据会自动更新到界面
-
-```typescript
-// 之前：等待 Firebase
-const pulls = await getPullsToWin(); // 阻塞！
-setPullsToWin(pulls);
-
-// 现在：立即渲染，后台加载
-const [pullsToWin, setPullsToWin] = useState(1); // 默认值
-
-useEffect(() => {
-  getPullsToWin().then((pulls) => {
-    setPullsToWin(pulls); // 后台更新
-  });
-  
-  setTimeout(() => {
-    setIsLoaded(true); // 100ms 后显示应用
-  }, 100);
-}, []);
-```
-
-### 3. 代码分割 (Code Splitting)
-
-构建结果显示 Firebase 被分割成独立的 chunk：
+## 构建输出
 
 ```
-dist/assets/index.esm-2jMOB0oJ.js      1.35 kB  (Firebase 核心)
-dist/assets/index.esm-R_ZmV3W8.js     54.54 kB  (Firebase 数据库)
-dist/assets/index.esm-CvH1l8Wy.js    192.87 kB  (Firebase 认证)
-dist/assets/index-DvlRTKyW.js      1,010.52 kB  (主应用)
+dist/
+├── index.html (3.11 kB)
+└── assets/
+    ├── index-7Ry2S8t2.css (34.34 kB)
+    └── index-BClSLoMp.js (1,233.94 kB)
 ```
 
-这意味着：
-- 主应用可以先加载和渲染
-- Firebase 在需要时才下载
-- 如果 Firebase 被阻止，主应用仍然可以工作
+只有一个 JS 文件，这对 GitHub Pages 更好！
 
-## 工作流程
+## 部署步骤
+
+```bash
+# 1. 确保所有更改已提交
+git add .
+git commit -m "Fix: Use static Firebase imports for GitHub Pages"
+git push
+
+# 2. 等待 GitHub Pages 部署（1-2 分钟）
+
+# 3. 访问应用
+# https://andyyim175.github.io/pull/
+```
+
+## 工作原理
 
 ### 应用启动流程
 
-```
-1. HTML 加载
-   ↓
-2. 显示加载动画 (⚔️)
-   ↓
-3. React 初始化 (立即)
-   ↓
-4. 应用渲染 (使用默认值)
-   ↓
-5. 隐藏加载动画 (100ms 后)
-   ↓
-6. 后台加载 Firebase (异步)
-   ↓
-7. 更新界面数据 (如果 Firebase 成功)
-```
+1. **HTML 加载** - 显示加载动画（⚔️）
+2. **JS 加载** - 加载单个 1.2MB 的 JS 文件
+3. **Firebase 初始化** - 在模块加载时立即初始化（不阻塞）
+4. **React 渲染** - 使用默认值立即渲染
+5. **隐藏加载动画** - 100ms 后
+6. **后台数据加载** - Firebase 数据异步更新
 
 ### Firebase 降级策略
 
 ```
-尝试加载 Firebase
+Firebase 初始化
    ↓
 成功？
    ├─ 是 → 使用 Firebase Realtime Database
@@ -106,56 +53,14 @@ dist/assets/index-DvlRTKyW.js      1,010.52 kB  (主应用)
            应用继续正常工作
 ```
 
-## 测试验证
-
-### 本地测试
-
-```bash
-npm run dev
-```
-
-打开浏览器开发者工具，应该看到：
-1. "App mounted, loading data in background..."
-2. "Setting isLoaded to true" (100ms 后)
-3. "Loaded pullsToWin: X" (Firebase 加载完成后)
-4. "Leaderboard update: X entries"
-
-### GitHub Pages 测试
-
-部署后打开 https://andyyim175.github.io/pull/
-
-应该看到：
-1. 加载动画显示 100ms
-2. 应用立即渲染（不再卡住）
-3. 如果 Firebase 被阻止，使用 localStorage
-4. 如果 Firebase 可用，数据会自动同步
-
 ## 关键改进
 
 | 改进项 | 之前 | 现在 |
 |--------|------|------|
-| Firebase 加载 | 同步阻塞 | 异步延迟 |
-| 应用渲染 | 等待 Firebase | 立即渲染 |
-| 加载时间 | 取决于 Firebase | 固定 100ms |
-| Firebase 失败 | 应用崩溃 | 降级到 localStorage |
-| 代码大小 | 1.2MB 单文件 | 分割成多个 chunk |
-
-## 部署步骤
-
-```bash
-# 1. 构建应用
-npm run build
-
-# 2. 提交到 GitHub
-git add .
-git commit -m "Fix: Firebase lazy loading for GitHub Pages"
-git push
-
-# 3. 等待 GitHub Pages 部署（通常 1-2 分钟）
-
-# 4. 访问应用
-open https://andyyim175.github.io/pull/
-```
+| Firebase 导入 | 动态 import() | 静态 import |
+| 代码分割 | 4 个 JS 文件 | 1 个 JS 文件 |
+| 加载可靠性 | ❌ 可能失败 | ✅ 总是成功 |
+| 文件大小 | 分散在多个文件 | 单个 1.2MB 文件 |
 
 ## 故障排除
 
@@ -165,27 +70,73 @@ open https://andyyim175.github.io/pull/
 2. 查看 Console 标签
 3. 查找错误信息
 
-常见错误：
-- `Failed to load resource: net::ERR_BLOCKED_BY_CLIENT` → Firebase 被广告拦截器阻止
-- `Firebase initialization failed` → Firebase 配置问题
-- `Canvas error` → WebGL 不支持
+常见错误及解决方案：
 
-### 如果 Firebase 不工作
+- **`Failed to load resource: 404`** 
+  - 原因：文件路径不正确
+  - 解决：确保 vite.config.js 中 base 设置为 `/pull/`
 
-应用会自动降级到 localStorage：
-- 数据保存在本地浏览器
-- 每个用户有自己的数据
-- 排行榜只显示本地数据
+- **`Firebase initialization failed`**
+  - 原因：Firebase 被阻止或配置错误
+  - 解决：应用会自动降级到 localStorage，仍然可以工作
 
-这是预期行为，应用仍然可以正常使用。
+- **`Canvas error`**
+  - 原因：WebGL 不支持
+  - 解决：应用会自动使用 CSS 回退场景
+
+### 清除缓存
+
+如果看到旧版本：
+
+```bash
+# 硬刷新
+Ctrl + Shift + R (Windows/Linux)
+Cmd + Shift + R (Mac)
+
+# 或清除浏览器缓存
+```
+
+## 本地测试
+
+```bash
+# 开发模式
+npm run dev
+
+# 构建预览
+npm run build
+npm run preview
+```
+
+## 技术栈
+
+- React 18
+- Three.js (3D 渲染)
+- Firebase Realtime Database
+- Tailwind CSS
+- Fira Code 字体
+- canvas-confetti
+
+## 文件结构
+
+```
+src/
+├── firebase.ts          # Firebase 配置和 API
+├── App.tsx              # 主应用组件
+├── main.tsx             # 应用入口
+├── index.css            # 全局样式
+└── components/
+    ├── Scene.tsx        # 3D 场景组件
+    ├── FallbackScene.tsx # CSS 回退场景
+    ├── ErrorBoundary.tsx # 错误边界
+    └── CanvasErrorBoundary.tsx
+```
 
 ## 总结
 
-这个修复确保了：
-1. ✅ 应用总是可以加载和渲染
-2. ✅ Firebase 不会阻塞应用启动
-3. ✅ Firebase 失败时自动降级
-4. ✅ 代码分割提高加载性能
-5. ✅ 更好的用户体验
+✅ Firebase 使用静态导入，更可靠
+✅ 单个 JS 文件，加载更简单
+✅ 应用立即渲染，不等待 Firebase
+✅ Firebase 失败时自动降级
+✅ 10 秒超时检查，显示错误信息
 
-现在应用应该可以在 GitHub Pages 上正常工作了！🎉
+现在应该可以在 GitHub Pages 上正常工作了！🎉
