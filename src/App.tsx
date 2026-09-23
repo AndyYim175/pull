@@ -14,6 +14,7 @@ import {
   isNameTaken,
   sendDiscordNotification,
 } from './firebase';
+import { AntiCheat } from './antiCheat';
 
 type GameState = 'idle' | 'pulling' | 'won' | 'cooldown' | 'returning';
 type WinStage = 'victory' | 'celebration' | 'tries' | 'distribution' | 'stats' | 'done';
@@ -294,6 +295,12 @@ function App() {
   }, []);
 
   const handlePull = useCallback(async () => {
+    // Anti-cheat validation
+    if (!AntiCheat.validateAction()) {
+      console.warn('Action blocked by anti-cheat');
+      return;
+    }
+    
     if (gameState !== 'idle' || !playerName) return;
 
     setGameState('pulling');
@@ -306,7 +313,21 @@ function App() {
     const doPull = async (index: number) => {
       if (!isMountedRef.current) return;
       
+      // Anti-cheat: validate pull index
+      if (!AntiCheat.validatePullResult(index, pullsToWin)) {
+        console.warn('Pull validation failed');
+        setGameState('idle');
+        return;
+      }
+      
       if (index >= pullsToWin) {
+        // Anti-cheat: validate win condition
+        if (!AntiCheat.validateWinCondition(pullsToWin, index)) {
+          console.warn('Win validation failed');
+          setGameState('idle');
+          return;
+        }
+        
         setGameState('won');
         setLastWinPulls(pullsToWin);
         setWinStage('victory');

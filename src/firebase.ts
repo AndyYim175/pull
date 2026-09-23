@@ -4,30 +4,51 @@ import { getDatabase, ref, get, set, push, onValue, update } from 'firebase/data
 
 let db: any = null;
 let firebaseAvailable = false;
+let firebaseInitAttempted = false;
 
 const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1551985995778363515/uoe4pmd6Qd7t3LqEMOYZKqpexYwmTAqpKyQsmqkfBUK7TQt5MThJLYXwx_HOriKgIz7m";
 
-// Initialize Firebase immediately
-try {
-  const firebaseConfig = {
-    apiKey: "AIzaSyBMaCOQyt3_sMf3lo7WgO5J7OuMnN40jM4",
-    authDomain: "global-stacker-game.firebaseapp.com",
-    databaseURL: "https://global-stacker-game-default-rtdb.firebaseio.com",
-    projectId: "global-stacker-game",
-    storageBucket: "global-stacker-game.firebasestorage.app",
-    messagingSenderId: "230230658853",
-    appId: "1:230230658853:web:8a302361aff7e1f55d14cc",
-    measurementId: "G-8XTMWW7P1K"
-  };
+// Initialize Firebase with retry
+function initFirebase() {
+  if (firebaseInitAttempted) return;
+  firebaseInitAttempted = true;
   
-  const app = initializeApp(firebaseConfig);
-  db = getDatabase(app);
-  firebaseAvailable = true;
-  console.log('Firebase initialized');
-} catch (error) {
-  console.warn('Firebase initialization failed:', error);
-  firebaseAvailable = false;
+  try {
+    const firebaseConfig = {
+      apiKey: "AIzaSyBMaCOQyt3_sMf3lo7WgO5J7OuMnN40jM4",
+      authDomain: "global-stacker-game.firebaseapp.com",
+      databaseURL: "https://global-stacker-game-default-rtdb.firebaseio.com",
+      projectId: "global-stacker-game",
+      storageBucket: "global-stacker-game.firebasestorage.app",
+      messagingSenderId: "230230658853",
+      appId: "1:230230658853:web:8a302361aff7e1f55d14cc",
+      measurementId: "G-8XTMWW7P1K"
+    };
+    
+    const app = initializeApp(firebaseConfig);
+    db = getDatabase(app);
+    
+    // Test connection
+    get(ref(db, '.info/connected')).then((snapshot) => {
+      if (snapshot.val() === true) {
+        firebaseAvailable = true;
+        console.log('✅ Firebase connected successfully');
+      } else {
+        console.warn('⚠️ Firebase not connected');
+        firebaseAvailable = false;
+      }
+    }).catch((err) => {
+      console.warn('⚠️ Firebase connection test failed:', err);
+      firebaseAvailable = false;
+    });
+  } catch (error) {
+    console.warn('❌ Firebase initialization failed:', error);
+    firebaseAvailable = false;
+  }
 }
+
+// Initialize immediately
+initFirebase();
 
 // Local storage fallback
 const LOCAL_KEYS = {
