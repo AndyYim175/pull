@@ -1,30 +1,7 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, get, set, push, onValue, update } from "firebase/database";
-
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyBMaCOQyt3_sMf3lo7WgO5J7OuMnN40jM4",
-  authDomain: "global-stacker-game.firebaseapp.com",
-  databaseURL: "https://global-stacker-game-default-rtdb.firebaseio.com",
-  projectId: "global-stacker-game",
-  storageBucket: "global-stacker-game.firebasestorage.app",
-  messagingSenderId: "230230658853",
-  appId: "1:230230658853:web:8a302361aff7e1f55d14cc",
-  measurementId: "G-8XTMWW7P1K"
-};
-
+// Firebase configuration - lazy loaded
 let db: any = null;
 let firebaseAvailable = false;
-
-try {
-  const app = initializeApp(firebaseConfig);
-  db = getDatabase(app);
-  firebaseAvailable = true;
-} catch (error) {
-  console.warn('Firebase initialization failed, using local storage fallback');
-  firebaseAvailable = false;
-}
+let firebaseInitialized = false;
 
 const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1551985995778363515/uoe4pmd6Qd7t3LqEMOYZKqpexYwmTAqpKyQsmqkfBUK7TQt5MThJLYXwx_HOriKgIz7m";
 
@@ -36,42 +13,105 @@ const LOCAL_KEYS = {
 };
 
 function getLocalPullsToWin(): number {
-  const val = localStorage.getItem(LOCAL_KEYS.PULLS_TO_WIN);
-  return val ? parseInt(val) : 1;
+  try {
+    const val = localStorage.getItem(LOCAL_KEYS.PULLS_TO_WIN);
+    return val ? parseInt(val) : 1;
+  } catch {
+    return 1;
+  }
 }
 
 function setLocalPullsToWin(value: number): void {
-  localStorage.setItem(LOCAL_KEYS.PULLS_TO_WIN, value.toString());
+  try {
+    localStorage.setItem(LOCAL_KEYS.PULLS_TO_WIN, value.toString());
+  } catch (e) {
+    console.warn('Failed to save to localStorage:', e);
+  }
 }
 
 function getLocalLeaderboard(): any[] {
-  const val = localStorage.getItem(LOCAL_KEYS.LEADERBOARD);
-  return val ? JSON.parse(val) : [];
+  try {
+    const val = localStorage.getItem(LOCAL_KEYS.LEADERBOARD);
+    return val ? JSON.parse(val) : [];
+  } catch {
+    return [];
+  }
 }
 
 function addLocalLeaderboardEntry(entry: any): void {
-  const lb = getLocalLeaderboard();
-  lb.unshift(entry);
-  localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(lb));
+  try {
+    const lb = getLocalLeaderboard();
+    lb.unshift(entry);
+    localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(lb));
+  } catch (e) {
+    console.warn('Failed to save leaderboard:', e);
+  }
 }
 
 function getLocalNames(): Record<string, string> {
-  const val = localStorage.getItem(LOCAL_KEYS.NAMES);
-  return val ? JSON.parse(val) : {};
+  try {
+    const val = localStorage.getItem(LOCAL_KEYS.NAMES);
+    return val ? JSON.parse(val) : {};
+  } catch {
+    return {};
+  }
 }
 
 function setLocalNames(names: Record<string, string>): void {
-  localStorage.setItem(LOCAL_KEYS.NAMES, JSON.stringify(names));
+  try {
+    localStorage.setItem(LOCAL_KEYS.NAMES, JSON.stringify(names));
+  } catch (e) {
+    console.warn('Failed to save names:', e);
+  }
+}
+
+// Initialize Firebase lazily
+export async function initFirebase(): Promise<boolean> {
+  if (firebaseInitialized) {
+    return firebaseAvailable;
+  }
+  
+  firebaseInitialized = true;
+  
+  try {
+    const { initializeApp } = await import('firebase/app');
+    const { getDatabase } = await import('firebase/database');
+    
+    const firebaseConfig = {
+      apiKey: "AIzaSyBMaCOQyt3_sMf3lo7WgO5J7OuMnN40jM4",
+      authDomain: "global-stacker-game.firebaseapp.com",
+      databaseURL: "https://global-stacker-game-default-rtdb.firebaseio.com",
+      projectId: "global-stacker-game",
+      storageBucket: "global-stacker-game.firebasestorage.app",
+      messagingSenderId: "230230658853",
+      appId: "1:230230658853:web:8a302361aff7e1f55d14cc",
+      measurementId: "G-8XTMWW7P1K"
+    };
+    
+    const app = initializeApp(firebaseConfig);
+    db = getDatabase(app);
+    firebaseAvailable = true;
+    console.log('Firebase initialized successfully');
+  } catch (error) {
+    console.warn('Firebase initialization failed, using local storage:', error);
+    firebaseAvailable = false;
+  }
+  
+  return firebaseAvailable;
 }
 
 // --- Pulls to Win ---
 export async function getPullsToWin(): Promise<number> {
-  if (!firebaseAvailable) {
+  await initFirebase();
+  
+  if (!firebaseAvailable || !db) {
     return getLocalPullsToWin();
   }
+  
   try {
+    const { get, ref } = await import('firebase/database');
     const snapshot = await get(ref(db, 'pullsToWin'));
-    return snapshot.exists() ? snapshot.val() : 1;
+    return snapshot.exists() ? snapshot.val() : getLocalPullsToWin();
   } catch (error) {
     console.warn('Failed to get pullsToWin from Firebase:', error);
     return getLocalPullsToWin();
@@ -79,19 +119,23 @@ export async function getPullsToWin(): Promise<number> {
 }
 
 export async function incrementPullsToWin(): Promise<number> {
-  if (!firebaseAvailable) {
+  await initFirebase();
+  
+  if (!firebaseAvailable || !db) {
     const current = getLocalPullsToWin();
     setLocalPullsToWin(current + 1);
     return current + 1;
   }
+  
   try {
+    const { get, set, ref } = await import('firebase/database');
     const pullsRef = ref(db, 'pullsToWin');
     const snapshot = await get(pullsRef);
     const current = snapshot.exists() ? snapshot.val() : 1;
     await set(pullsRef, current + 1);
     return current + 1;
   } catch (error) {
-    console.warn('Failed to increment pullsToWin in Firebase:', error);
+    console.warn('Failed to increment in Firebase:', error);
     const current = getLocalPullsToWin();
     setLocalPullsToWin(current + 1);
     return current + 1;
@@ -100,11 +144,15 @@ export async function incrementPullsToWin(): Promise<number> {
 
 // --- Leaderboard ---
 export async function addWin(entry: { name: string; pulls: number; timestamp: number }) {
-  if (!firebaseAvailable) {
+  await initFirebase();
+  
+  if (!firebaseAvailable || !db) {
     addLocalLeaderboardEntry(entry);
     return;
   }
+  
   try {
+    const { push, set, ref } = await import('firebase/database');
     const newRef = push(ref(db, 'leaderboard'));
     await set(newRef, entry);
   } catch (error) {
@@ -113,57 +161,65 @@ export async function addWin(entry: { name: string; pulls: number; timestamp: nu
   }
 }
 
-export async function getLeaderboard(): Promise<any[]> {
-  if (!firebaseAvailable) {
-    return getLocalLeaderboard();
-  }
-  try {
-    const snapshot = await get(ref(db, 'leaderboard'));
-    if (!snapshot.exists()) return [];
-    const data = snapshot.val();
-    return Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
-  } catch (error) {
-    console.warn('Failed to get leaderboard from Firebase:', error);
-    return getLocalLeaderboard();
-  }
-}
-
 export function subscribeLeaderboard(callback: (data: any[]) => void): () => void {
-  if (!firebaseAvailable) {
-    // For local storage, just call once with current data
-    callback(getLocalLeaderboard());
-    return () => {};
-  }
-  try {
-    const unsub = onValue(ref(db, 'leaderboard'), (snapshot) => {
-      if (!snapshot.exists()) {
-        callback([]);
-        return;
+  let unsub: (() => void) | null = null;
+  let cancelled = false;
+  
+  // Start with local data immediately
+  callback(getLocalLeaderboard());
+  
+  // Try to subscribe to Firebase
+  initFirebase().then((available) => {
+    if (cancelled) return;
+    
+    if (!available || !db) {
+      return;
+    }
+    
+    import('firebase/database').then(({ onValue, ref }) => {
+      if (cancelled) return;
+      
+      try {
+        unsub = onValue(ref(db, 'leaderboard'), (snapshot) => {
+          if (cancelled) return;
+          
+          if (!snapshot.exists()) {
+            callback([]);
+            return;
+          }
+          
+          const data = snapshot.val();
+          const arr = Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
+          callback(arr);
+        }, (error) => {
+          console.warn('Firebase subscription error:', error);
+          callback(getLocalLeaderboard());
+        });
+      } catch (error) {
+        console.warn('Failed to subscribe to leaderboard:', error);
       }
-      const data = snapshot.val();
-      const arr = Object.values(data).sort((a: any, b: any) => b.timestamp - a.timestamp);
-      callback(arr);
-    }, (error) => {
-      console.warn('Firebase leaderboard subscription error:', error);
-      callback(getLocalLeaderboard());
     });
-    return unsub;
-  } catch (error) {
-    console.warn('Failed to subscribe to leaderboard:', error);
-    callback(getLocalLeaderboard());
-    return () => {};
-  }
+  });
+  
+  return () => {
+    cancelled = true;
+    if (unsub) unsub();
+  };
 }
 
 // --- Users / Names ---
 export async function isNameTaken(name: string, excludeUserId?: string): Promise<boolean> {
-  if (!firebaseAvailable) {
+  await initFirebase();
+  
+  if (!firebaseAvailable || !db) {
     const names = getLocalNames();
     return Object.entries(names).some(([uid, n]) => 
       n.toLowerCase() === name.toLowerCase() && uid !== excludeUserId
     );
   }
+  
   try {
+    const { get, ref } = await import('firebase/database');
     const snapshot = await get(ref(db, 'names'));
     if (!snapshot.exists()) return false;
     const names: Record<string, string> = snapshot.val();
@@ -171,7 +227,7 @@ export async function isNameTaken(name: string, excludeUserId?: string): Promise
       n.toLowerCase() === name.toLowerCase() && uid !== excludeUserId
     );
   } catch (error) {
-    console.warn('Failed to check name in Firebase:', error);
+    console.warn('Failed to check name:', error);
     const names = getLocalNames();
     return Object.entries(names).some(([uid, n]) => 
       n.toLowerCase() === name.toLowerCase() && uid !== excludeUserId
@@ -179,42 +235,32 @@ export async function isNameTaken(name: string, excludeUserId?: string): Promise
   }
 }
 
-export async function setUser(userId: string, name: string) {
-  if (!firebaseAvailable) {
-    const names = getLocalNames();
-    names[userId] = name;
-    setLocalNames(names);
-    return;
-  }
-  try {
-    await set(ref(db, `names/${userId}`), name);
-  } catch (error) {
-    console.warn('Failed to set user in Firebase:', error);
-    const names = getLocalNames();
-    names[userId] = name;
-    setLocalNames(names);
-  }
-}
-
 export async function renameUser(userId: string, oldName: string, newName: string) {
-  if (!firebaseAvailable) {
-    const names = getLocalNames();
-    names[userId] = newName;
-    setLocalNames(names);
-    
-    // Update leaderboard entries
-    const lb = getLocalLeaderboard();
-    const updated = lb.map((entry: any) => 
-      entry.name === oldName ? { ...entry, name: newName } : entry
-    );
+  await initFirebase();
+  
+  // Always update local storage
+  const names = getLocalNames();
+  names[userId] = newName;
+  setLocalNames(names);
+  
+  const lb = getLocalLeaderboard();
+  const updated = lb.map((entry: any) => 
+    entry.name === oldName ? { ...entry, name: newName } : entry
+  );
+  try {
     localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(updated));
+  } catch (e) {
+    console.warn('Failed to update local leaderboard:', e);
+  }
+  
+  if (!firebaseAvailable || !db) {
     return;
   }
+  
   try {
-    // Update the name registry
+    const { set, get, update, ref } = await import('firebase/database');
     await set(ref(db, `names/${userId}`), newName);
     
-    // Update all leaderboard entries with old name
     const snapshot = await get(ref(db, 'leaderboard'));
     if (!snapshot.exists()) return;
     const data = snapshot.val();
@@ -228,16 +274,7 @@ export async function renameUser(userId: string, oldName: string, newName: strin
       await update(ref(db), updates);
     }
   } catch (error) {
-    console.warn('Failed to rename user in Firebase:', error);
-    const names = getLocalNames();
-    names[userId] = newName;
-    setLocalNames(names);
-    
-    const lb = getLocalLeaderboard();
-    const updated = lb.map((entry: any) => 
-      entry.name === oldName ? { ...entry, name: newName } : entry
-    );
-    localStorage.setItem(LOCAL_KEYS.LEADERBOARD, JSON.stringify(updated));
+    console.warn('Failed to rename in Firebase:', error);
   }
 }
 
@@ -248,11 +285,9 @@ export async function sendDiscordNotification(playerName: string, pullsAchieved:
   let color = 0x888888;
   
   if (pullsAchieved >= pullsToWin) {
-    // Winner!
     message = `🏆 **${playerName}** pulled the sword in **${pullsToWin} pulls**! A new champion rises!`;
     color = 0xffd700;
   } else if (diff <= 3) {
-    // Close to winning
     const labels: Record<number, string> = {
       1: '🔥',
       2: '⚡',
@@ -262,7 +297,7 @@ export async function sendDiscordNotification(playerName: string, pullsAchieved:
     message = `${emoji} **${playerName}** reached pull **${pullsAchieved}** (${diff} pull${diff > 1 ? 's' : ''} from victory!)`;
     color = diff === 1 ? 0xff4444 : diff === 2 ? 0xff8800 : 0xffaa00;
   } else {
-    return; // Don't notify for far-from-winning attempts
+    return;
   }
 
   try {
