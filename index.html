@@ -20,15 +20,32 @@
         background-color: #0a0f0a;
       }
       /* Initial loading state */
-      #root:empty {
+      #loading {
+        position: fixed;
+        inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
+        background-color: #0a0f0a;
+        z-index: 9999;
+        transition: opacity 0.3s;
       }
-      #root:empty::after {
-        content: '⚔️';
+      #loading.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #loading-content {
+        text-align: center;
+      }
+      #loading-emoji {
         font-size: 3rem;
         animation: pulse 2s ease-in-out infinite;
+      }
+      #loading-text {
+        color: rgba(255, 215, 0, 0.6);
+        font-size: 0.875rem;
+        letter-spacing: 0.1em;
+        margin-top: 1rem;
       }
       @keyframes pulse {
         0%, 100% { opacity: 0.5; transform: scale(1); }
@@ -37,7 +54,23 @@
     </style>
   </head>
   <body>
+    <div id="loading">
+      <div id="loading-content">
+        <div id="loading-emoji">⚔️</div>
+        <div id="loading-text">loading...</div>
+      </div>
+    </div>
     <div id="root"></div>
+    <script>
+      // Hide loading screen after 5 seconds max
+      setTimeout(() => {
+        const loading = document.getElementById('loading');
+        if (loading) {
+          loading.classList.add('hidden');
+          setTimeout(() => loading.remove(), 300);
+        }
+      }, 5000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

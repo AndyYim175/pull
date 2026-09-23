@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import confetti from 'canvas-confetti';
@@ -70,12 +70,15 @@ function App() {
 
   // Load initial data
   useEffect(() => {
+    console.log('App mounted, starting initialization...');
     let unsub: (() => void) | undefined;
     let timeoutId: ReturnType<typeof setTimeout>;
     
     const loadData = async () => {
       try {
+        console.log('Loading pullsToWin...');
         const pulls = await getPullsToWin();
+        console.log('pullsToWin loaded:', pulls);
         if (isMountedRef.current) {
           setPullsToWin(pulls);
         }
@@ -84,7 +87,9 @@ function App() {
       }
       
       try {
+        console.log('Subscribing to leaderboard...');
         unsub = subscribeLeaderboard((data) => {
+          console.log('Leaderboard update:', data.length, 'entries');
           if (isMountedRef.current) {
             setLeaderboard(data);
           }
@@ -95,6 +100,7 @@ function App() {
       
       // Mark as loaded after a short delay to ensure canvas is ready
       timeoutId = setTimeout(() => {
+        console.log('Setting isLoaded to true');
         if (isMountedRef.current) {
           setIsLoaded(true);
         }
@@ -104,6 +110,7 @@ function App() {
     loadData();
     
     return () => {
+      console.log('App unmounting');
       isMountedRef.current = false;
       if (unsub) unsub();
       if (timeoutId) clearTimeout(timeoutId);
@@ -391,6 +398,17 @@ function App() {
     return () => clearTimeout(timeout);
   }, [isLoaded]);
 
+  // Hide loading screen when app is ready
+  useEffect(() => {
+    if (isLoaded) {
+      const loading = document.getElementById('loading');
+      if (loading) {
+        loading.classList.add('hidden');
+        setTimeout(() => loading.remove(), 300);
+      }
+    }
+  }, [isLoaded]);
+
   // Loading screen
   if (!isLoaded) {
     return (
@@ -410,35 +428,33 @@ function App() {
         <CanvasErrorBoundary fallback={<FallbackScene pullProgress={pullProgress} />}>
           <Canvas
             camera={{ position: [0, 1, 5], fov: 50 }}
-            shadows
             className="absolute inset-0"
-            dpr={[1, 2]}
-            gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+            dpr={1}
+            gl={{ 
+              antialias: false, 
+              alpha: false,
+              powerPreference: 'low-power'
+            }}
             onCreated={({ gl }) => {
               gl.setClearColor('#0a0f0a');
+              console.log('Canvas created successfully');
             }}
           >
-            <ambientLight intensity={0.3} />
+            <ambientLight intensity={0.4} />
             <directionalLight
               position={[5, 8, 5]}
-              intensity={1.2}
-              castShadow
-              shadow-mapSize={[1024, 1024]}
+              intensity={1}
             />
-            <pointLight position={[0, 3, 0]} intensity={0.8} color="#ffd700" distance={8} />
-            <pointLight position={[-3, 2, -2]} intensity={0.3} color="#4488ff" distance={10} />
-            <fog attach="fog" args={['#0a1a0a', 8, 25]} />
+            <pointLight position={[0, 3, 0]} intensity={0.6} color="#ffd700" distance={8} />
+            <fog attach="fog" args={['#0a1a0a', 10, 20]} />
             
-            <Suspense fallback={null}>
-              <Sword pullProgress={pullProgress} shaking={gameState === 'pulling'} />
-              <Stone />
-              <Ground />
-              <Particles />
-              <Trees />
-              <Rocks />
-              <Grass />
-            </Suspense>
-            
+        <Sword pullProgress={pullProgress} shaking={gameState === 'pulling'} />
+        <Stone />
+        <Ground />
+        <Particles />
+        <Trees />
+        <Rocks />
+        <Grass />            
             <OrbitControls
               enablePan={false}
               enableZoom={false}
