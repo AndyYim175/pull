@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import confetti from 'canvas-confetti';
@@ -35,6 +35,7 @@ function isWebGLAvailable(): boolean {
 }
 
 function App() {
+  // Start with defaults - don't wait for Firebase
   const [gameState, setGameState] = useState<GameState>('idle');
   const [pullsToWin, setPullsToWin] = useState(1);
   const [currentPull, setCurrentPull] = useState(0);
@@ -47,7 +48,6 @@ function App() {
   const [editingName, setEditingName] = useState('');
   const [nameError, setNameError] = useState('');
   const [nameChecking, setNameChecking] = useState(false);
-  // Stats: how many times failed at each pull depth
   const [failStats, setFailStats] = useState<Record<number, number>>({});
   const [totalTries, setTotalTries] = useState(0);
   const [lastWinPulls, setLastWinPulls] = useState(0);
@@ -70,52 +70,40 @@ function App() {
     }
   }, [playerId]);
 
-  // Load initial data
+  // Load data in background - don't block rendering
   useEffect(() => {
-    console.log('App mounted, starting initialization...');
-    let unsub: (() => void) | undefined;
-    let timeoutId: ReturnType<typeof setTimeout>;
+    console.log('App mounted, loading data in background...');
     
-    const loadData = async () => {
-      try {
-        console.log('Loading pullsToWin...');
-        const pulls = await getPullsToWin();
-        console.log('pullsToWin loaded:', pulls);
-        if (isMountedRef.current) {
-          setPullsToWin(pulls);
-        }
-      } catch (e) {
-        console.warn('Failed to load pullsToWin:', e);
+    // Load pulls to win (non-blocking)
+    getPullsToWin().then((pulls) => {
+      if (isMountedRef.current) {
+        console.log('Loaded pullsToWin:', pulls);
+        setPullsToWin(pulls);
       }
-      
-      try {
-        console.log('Subscribing to leaderboard...');
-        unsub = subscribeLeaderboard((data) => {
-          console.log('Leaderboard update:', data.length, 'entries');
-          if (isMountedRef.current) {
-            setLeaderboard(data);
-          }
-        });
-      } catch (e) {
-        console.warn('Failed to subscribe to leaderboard:', e);
+    }).catch((e) => {
+      console.warn('Failed to load pullsToWin:', e);
+    });
+    
+    // Subscribe to leaderboard (non-blocking)
+    const unsub = subscribeLeaderboard((data) => {
+      console.log('Leaderboard update:', data.length, 'entries');
+      if (isMountedRef.current) {
+        setLeaderboard(data);
       }
-      
-      // Mark as loaded after a short delay to ensure canvas is ready
-      timeoutId = setTimeout(() => {
+    });
+    
+    // Mark as loaded immediately
+    setTimeout(() => {
+      if (isMountedRef.current) {
         console.log('Setting isLoaded to true');
-        if (isMountedRef.current) {
-          setIsLoaded(true);
-        }
-      }, 300);
-    };
-    
-    loadData();
+        setIsLoaded(true);
+      }
+    }, 100);
     
     return () => {
       console.log('App unmounting');
       isMountedRef.current = false;
       if (unsub) unsub();
-      if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
 
@@ -164,6 +152,41 @@ function App() {
     }
   }, [winStage]);
 
+  // Safety timeout - force load after 3 seconds
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!isLoaded) {
+        console.warn('Loading timeout - forcing display');
+        setIsLoaded(true);
+      }
+    }, 3000);
+    return () => clearTimeout(timeout);
+  }, [isLoaded]);
+
+  // Hide loading screen when app is ready
+  useEffect(() => {
+    if (isLoaded) {
+      const loading = document.getElementById('loading');
+      if (loading) {
+        loading.classList.add('hidden');
+        setTimeout(() => loading.remove(), 300);
+      }
+    }
+  }, [isLoaded]);
+
+  // Check if Canvas has rendered, if not use fallback
+  useEffect(() => {
+    if (isLoaded && webGLSupported && !useFallback) {
+      const canvasTimeout = setTimeout(() => {
+        if (!canvasReady) {
+          console.warn('Canvas did not initialize, using fallback scene');
+          setUseFallback(true);
+        }
+      }, 2000);
+      return () => clearTimeout(canvasTimeout);
+    }
+  }, [isLoaded, webGLSupported, canvasReady, useFallback]);
+
   const getPullTimings = useCallback((k: number): number[] => {
     const timings: number[] = [];
     for (let i = 0; i < k; i++) {
@@ -200,7 +223,6 @@ function App() {
     };
     frame();
 
-    // Big burst
     confetti({
       particleCount: 200,
       spread: 140,
@@ -285,7 +307,6 @@ function App() {
       if (!isMountedRef.current) return;
       
       if (index >= pullsToWin) {
-        // Won!
         setGameState('won');
         setLastWinPulls(pullsToWin);
         setWinStage('victory');
@@ -302,7 +323,6 @@ function App() {
           timestamp: Date.now(),
         });
 
-        // Send discord notification for winner
         await sendDiscordNotification(playerName, pullsToWin, pullsToWin);
         
         return;
@@ -324,7 +344,6 @@ function App() {
             [index + 1]: (prev[index + 1] || 0) + 1
           }));
           
-          // Send discord notification if close to winning (failed at pullsToWin - 1, -2, or -3)
           const pullsFromWin = pullsToWin - (index + 1);
           if (pullsFromWin >= 1 && pullsFromWin <= 3) {
             sendDiscordNotification(playerName, index + 1, pullsToWin);
@@ -389,41 +408,6 @@ function App() {
     setWinStage('done');
   };
 
-  // Safety timeout - force load after 3 seconds
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (!isLoaded) {
-        console.warn('Loading timeout - forcing display');
-        setIsLoaded(true);
-      }
-    }, 3000);
-    return () => clearTimeout(timeout);
-  }, [isLoaded]);
-
-  // Hide loading screen when app is ready
-  useEffect(() => {
-    if (isLoaded) {
-      const loading = document.getElementById('loading');
-      if (loading) {
-        loading.classList.add('hidden');
-        setTimeout(() => loading.remove(), 300);
-      }
-    }
-  }, [isLoaded]);
-
-  // Check if Canvas has rendered, if not use fallback
-  useEffect(() => {
-    if (isLoaded && webGLSupported && !useFallback) {
-      const canvasTimeout = setTimeout(() => {
-        if (!canvasReady) {
-          console.warn('Canvas did not initialize, using fallback scene');
-          setUseFallback(true);
-        }
-      }, 2000);
-      return () => clearTimeout(canvasTimeout);
-    }
-  }, [isLoaded, webGLSupported, canvasReady, useFallback]);
-
   // Loading screen
   if (!isLoaded) {
     return (
@@ -464,13 +448,14 @@ function App() {
             <pointLight position={[0, 3, 0]} intensity={0.6} color="#ffd700" distance={8} />
             <fog attach="fog" args={['#0a1a0a', 10, 20]} />
             
-        <Sword pullProgress={pullProgress} shaking={gameState === 'pulling'} />
-        <Stone />
-        <Ground />
-        <Particles />
-        <Trees />
-        <Rocks />
-        <Grass />            
+            <Sword pullProgress={pullProgress} shaking={gameState === 'pulling'} />
+            <Stone />
+            <Ground />
+            <Particles />
+            <Trees />
+            <Rocks />
+            <Grass />
+            
             <OrbitControls
               enablePan={false}
               enableZoom={false}
@@ -592,7 +577,6 @@ function App() {
         {/* Win overlay - multi-stage */}
         {gameState === 'won' && winStage && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
-            {/* Victory stage */}
             {winStage === 'victory' && (
               <div className="text-center" style={{ animation: 'fadeIn 0.3s ease-out' }}>
                 <div className="text-6xl mb-4">⚔️</div>
@@ -602,7 +586,6 @@ function App() {
               </div>
             )}
 
-            {/* Celebration stage */}
             {winStage === 'celebration' && (
               <div className="text-center" style={{ animation: 'fadeIn 0.5s ease-out' }}>
                 <div className="text-5xl mb-3">🎉✨🏆✨🎉</div>
@@ -611,7 +594,6 @@ function App() {
               </div>
             )}
 
-            {/* Tries stage */}
             {winStage === 'tries' && (
               <div className="text-center" style={{ animation: 'fadeIn 0.5s ease-out' }}>
                 <p className="text-white/40 text-xs uppercase tracking-wider mb-2">total tries</p>
@@ -620,25 +602,19 @@ function App() {
               </div>
             )}
 
-            {/* Distribution stage */}
             {winStage === 'distribution' && (
               <div className="bg-black/85 backdrop-blur-lg rounded-2xl border border-amber-400/30 p-6 max-w-xs w-full mx-4" style={{ animation: 'fadeIn 0.5s ease-out' }}>
                 <p className="text-white/40 text-[10px] uppercase tracking-wider mb-3 text-center">attempt distribution</p>
                 <div className="space-y-2">
                   {(() => {
-                    // Build full distribution:
-                    // - failStats[X] = number of attempts that failed at pull X
-                    // - 1 attempt won at pullsToWin
                     const dist: { pulls: string; count: number; isWin: boolean }[] = [];
                     
-                    // Add fail entries
                     Object.entries(failStats)
                       .sort(([a], [b]) => parseInt(a) - parseInt(b))
                       .forEach(([pull, count]) => {
                         dist.push({ pulls: pull, count, isWin: false });
                       });
                     
-                    // Add the winning attempt
                     dist.push({ pulls: String(pullsToWin), count: 1, isWin: true });
                     
                     const maxCount = Math.max(...dist.map(d => d.count), 1);
@@ -664,7 +640,6 @@ function App() {
               </div>
             )}
 
-            {/* Stats stage */}
             {winStage === 'stats' && (
               <div className="bg-black/85 backdrop-blur-lg rounded-2xl border border-amber-400/30 p-6 max-w-xs w-full mx-4" style={{ animation: 'fadeIn 0.5s ease-out' }}>
                 <p className="text-white/40 text-[10px] uppercase tracking-wider mb-3 text-center">session stats</p>
@@ -693,7 +668,6 @@ function App() {
               </div>
             )}
 
-            {/* Done stage - continue button */}
             {winStage === 'done' && (
               <div className="bg-black/85 backdrop-blur-lg rounded-2xl border border-amber-400/30 p-6 max-w-xs w-full mx-4" style={{ animation: 'fadeIn 0.3s ease-out' }}>
                 <div className="text-center">
@@ -731,7 +705,6 @@ function App() {
               </div>
             )}
 
-            {/* Skip button for stages */}
             {winStage && winStage !== 'done' && (
               <button
                 onClick={handleSkipToStats}

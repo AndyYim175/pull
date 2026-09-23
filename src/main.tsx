@@ -2,20 +2,30 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
-import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 
-// Global error handler
+// Global error handlers
 window.addEventListener('error', (event) => {
   console.error('Global error:', event.error);
-  showError(event.error?.message || 'Unknown error');
 });
 
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled promise rejection:', event.reason);
-  showError(event.reason?.message || 'Unknown error');
 });
 
+function hideLoading() {
+  const loading = document.getElementById('loading');
+  if (loading) {
+    loading.classList.add('hidden');
+    setTimeout(() => {
+      if (loading.parentNode) {
+        loading.parentNode.removeChild(loading);
+      }
+    }, 300);
+  }
+}
+
 function showError(message: string) {
+  console.error('App error:', message);
   const loading = document.getElementById('loading');
   if (loading) {
     loading.innerHTML = `
@@ -29,33 +39,24 @@ function showError(message: string) {
   }
 }
 
-function hideLoading() {
-  const loading = document.getElementById('loading');
-  if (loading) {
-    loading.classList.add('hidden');
-    setTimeout(() => loading.remove(), 300);
-  }
-}
-
 // Initialize the app
-const rootElement = document.getElementById("root");
-
-if (!rootElement) {
-  showError('Root element not found');
-} else {
-  try {
+try {
+  const rootElement = document.getElementById("root");
+  
+  if (!rootElement) {
+    showError('Root element not found');
+  } else {
     const root = ReactDOM.createRoot(rootElement);
     
     root.render(
-      <ErrorBoundary>
+      <React.StrictMode>
         <App />
-      </ErrorBoundary>
+      </React.StrictMode>
     );
     
-    // Don't hide loading screen here - let the App component do it when ready
-    console.log('React app initialized');
-  } catch (error) {
-    console.error('Failed to initialize React:', error);
-    showError(error instanceof Error ? error.message : 'Failed to initialize app');
+    console.log('React app initialized successfully');
   }
+} catch (error) {
+  console.error('Failed to initialize React:', error);
+  showError(error instanceof Error ? error.message : 'Failed to initialize app');
 }
